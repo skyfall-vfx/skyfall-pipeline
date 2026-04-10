@@ -336,6 +336,11 @@ class KitsuAPI:
             None
         )
 
+    def set_main_preview(self, shot_id: str, preview_id: str) -> bool:
+        """샷의 메인 썸네일을 preview로 설정합니다."""
+        result = self._put(f"/data/entities/{shot_id}", {"preview_file_id": preview_id})
+        return result is not None
+
     def get_comments(self, task_id: str) -> list:
         """태스크의 기존 comment 목록을 반환합니다."""
         return self._get(f"/data/tasks/{task_id}/comments") or []

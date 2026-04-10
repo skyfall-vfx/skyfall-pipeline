@@ -88,6 +88,7 @@ def upload_previews(show: str, kitsu: KitsuAPI, folder_filter: str,
                     task["id"], comment["id"], str(editor_path)
                 )
                 if preview_id:
+                    kitsu.set_main_preview(shot_data["id"], preview_id)
                     print(f"     {shot_code}  ✅ preview: {editor_path.name} ({version})")
                 else:
                     print(f"     {shot_code}  ❌ preview 업로드 실패")
