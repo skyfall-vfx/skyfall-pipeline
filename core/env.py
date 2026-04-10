@@ -48,7 +48,7 @@ def get_project_config(project_name: str) -> dict:
         return {}
     try:
         import yaml
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except ImportError:
         # PyYAML 없으면 간단한 key: value 파서로 폴백
@@ -62,7 +62,7 @@ def _parse_simple_yaml(path: Path) -> dict:
     """PyYAML 없을 때 단순 key: value 형식만 파싱하는 폴백 파서."""
     result = {}
     try:
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith('#'):
                 continue

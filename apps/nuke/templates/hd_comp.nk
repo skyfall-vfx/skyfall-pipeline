@@ -67,7 +67,7 @@ Write {
  mov64_fps {{FPS}}
  mov64_write_timecode true
  mov64_fast_start true
- colorspace "{{REVIEW_COLORSPACE}}"
+ colorspace "{{OUTPUT_COLORSPACE}}"
  channels rgb
  create_directories true
  first {{FRAME_IN}}

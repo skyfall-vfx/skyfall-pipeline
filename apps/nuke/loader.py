@@ -4,7 +4,7 @@ import re
 import logging
 from pathlib import Path
 from core import context
-from core.env import get_project_config, get_ocio_config_for_project
+from core.env import get_project_config
 
 logger = logging.getLogger("skyfall.loader")
 
@@ -80,25 +80,19 @@ def load_plate():
         return
 
     shot_root = ctx.get_shot_root()
-    plate_dir = str(Path(shot_root) / "plate")
+    plate_base = Path(shot_root) / "plate"
 
-    if not os.path.isdir(plate_dir):
-        nuke.message(f"Plate folder missing:\n{plate_dir}")
+    if not plate_base.is_dir():
+        nuke.message(f"Plate folder missing:\n{plate_base}")
         return
+
+    # 버전 서브폴더가 있으면 최신 버전 사용
+    ver_dirs = sorted([d for d in plate_base.iterdir() if d.is_dir() and d.name.startswith("v")])
+    plate_dir = str(ver_dirs[-1]) if ver_dirs else str(plate_base)
 
     cfg = get_project_config(ctx.project) if ctx.project else {}
 
-    # 쇼별 OCIO config — Nuke Root에 적용
-    if ctx.project:
-        ocio_path = get_ocio_config_for_project(ctx.project)
-        if ocio_path:
-            try:
-                nuke.root()['colorManagement'].setValue('OCIO')
-                nuke.root()['OCIO_config'].setValue('custom')
-                nuke.root()['customOCIOConfigPath'].setValue(ocio_path)
-                logger.info(f"OCIO config set: {ocio_path}")
-            except Exception as e:
-                logger.warning(f"OCIO config 적용 실패: {e}")
+    # OCIO는 nk 파일에 이미 설정되어 있으므로 loader에서 변경하지 않음
 
     # 1. EXR 시퀀스 감지 시도
     nuke_path, first, last = _detect_sequence(plate_dir)
@@ -110,39 +104,78 @@ def load_plate():
         read["last"].setValue(last)
         read["origfirst"].setValue(first)
         read["origlast"].setValue(last)
-        _apply_colorspace(read, cfg)
         read.autoplace()
         logger.info(f"EXR sequence loaded: {nuke_path} [{first}-{last}]")
         nuke.tprint(f"[SKYFALL] Plate Loaded (sequence): {nuke_path} [{first}-{last}]")
         return
 
-    # 2. 단일 파일 폴백
+    # 2. 단일 파일 폴백 (MOV 등)
     target = _find_best_single_file(plate_dir)
     if not target:
         nuke.message(f"No plate assets found in:\n{plate_dir}")
         return
 
-    read = nuke.createNode("Read")
-    read["file"].setValue(target)
-    _apply_colorspace(read, cfg)
-    read.autoplace()
+    camera_cs = cfg.get("camera_colorspace", "")
+
+    if target.lower().endswith((".mov", ".mp4")):
+        # MOV: 기존 Read_PLATE에서 프레임 정보 가져오기
+        existing_read = nuke.toNode("Read_PLATE")
+        if existing_read:
+            orig_last = int(existing_read["last"].value())
+            frame_in = int(nuke.root()["first_frame"].value())
+        else:
+            # ffprobe fallback (절대 경로)
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["/opt/homebrew/bin/ffprobe", "-v", "quiet",
+                     "-select_streams", "v:0", "-count_packets",
+                     "-show_entries", "stream=nb_read_packets",
+                     "-of", "csv=p=0", target],
+                    capture_output=True, text=True, timeout=10
+                )
+                orig_last = int(result.stdout.strip().split(",")[-1])
+            except Exception:
+                orig_last = 100
+            frame_in = 1001
+
+        # 기존 Read_PLATE와 동일한 nk 포맷으로 생성
+        cs = camera_cs or "default"
+        nuke.tprint(f"[SKYFALL] Load Plate cfg: {cfg}")
+        nuke.tprint(f"[SKYFALL] Load Plate colorspace: {cs}")
+        nuke.tprint(f"[SKYFALL] Load Plate project: {ctx.project}")
+        nk_str = (
+            f'Read {{\n'
+            f' inputs 0\n'
+            f' file_type mov\n'
+            f' file {target}\n'
+            f' before black\n'
+            f' last {orig_last}\n'
+            f' after black\n'
+            f' frame_mode "start at"\n'
+            f' frame {frame_in}\n'
+            f' origlast {orig_last}\n'
+            f' origset true\n'
+            f' colorspace "{cs}"\n'
+            f' name Read_loaded\n'
+            f' label PLATE\n'
+            f'}}\n'
+        )
+
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(suffix=".nk", mode="w", delete=False)
+        tmp.write(nk_str)
+        tmp.close()
+        nuke.scriptSource(tmp.name)
+        os.unlink(tmp.name)
+        loaded = nuke.toNode("Read_loaded")
+        if loaded:
+            loaded.autoplace()
+    else:
+        read = nuke.createNode("Read")
+        read["file"].setValue(target)
+        read.autoplace()
     logger.info(f"Single file loaded: {target}")
     nuke.tprint(f"[SKYFALL] Plate Loaded: {target}")
 
 
-def _apply_colorspace(read_node, cfg: dict):
-    """
-    플레이트 Read 노드에 카메라 입력 색공간을 적용합니다.
-    project.yml의 camera_colorspace → OCIO input colorspace
-    없으면 working_colorspace 폴백
-    """
-    # 플레이트 입력은 카메라 색공간 (LogC, S-Log3 등)
-    colorspace = cfg.get("camera_colorspace") or cfg.get("working_colorspace", "")
-    if not colorspace:
-        return
-    try:
-        if 'colorspace' in read_node.knobs():
-            read_node['colorspace'].setValue(colorspace)
-            logger.info(f"Colorspace set: {colorspace}")
-    except Exception as e:
-        logger.warning(f"Could not set colorspace '{colorspace}': {e}")

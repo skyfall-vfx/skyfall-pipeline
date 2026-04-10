@@ -53,9 +53,9 @@ class Context:
 
     def get_shot_root(self):
         if not self.is_valid: return None
-        from core import env
-        mount = env.get_project_mount()
-        
+        from core.env import get_shows_root
+        mount = get_shows_root()
+
         if self.episode:
             return f"{mount}/{self.project}/{self.episode}/{self.sequence}/{self.shot}"
         else:
