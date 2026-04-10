@@ -449,7 +449,7 @@ class KitsuAPI:
         if not project:
             return
 
-        shot = self.get_shot_data(project['id'], ctx.shot)
+        shot = self.get_shot_data(project['id'], ctx.shot, episode=ctx.episode, sequence=ctx.sequence)
         if not shot:
             return
 
