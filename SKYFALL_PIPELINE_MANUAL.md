@@ -360,22 +360,34 @@ python3 tools/ingest_plate.py AAB --folder 260410/02_plate    # 서브폴더 지
 ### 5.3 setup_shot.py — 샷 폴더 생성
 
 ```bash
-python3 tools/setup_shot.py AAB --all                        # 전체 샷 일괄
+python3 tools/setup_shot.py AAB --all                        # 전체 샷 (comp)
+python3 tools/setup_shot.py AAB --all --task roto             # 전체 샷 (roto)
+python3 tools/setup_shot.py AAB --all --task prep             # 전체 샷 (prep)
 python3 tools/setup_shot.py AAB --all --dry-run               # 미리보기
 python3 tools/setup_shot.py AAB EP01_S004_0002                # 단일 샷
 ```
 
 - plates/ 기준으로 샷 자동 감지
+- `--task` 미지정 시 기본 comp
 - 새 버전 플레이트 감지 시 nk 자동 재생성
+- 한 샷에 여러 태스크 가능 (comp + roto 각각 실행)
 - 생성: 폴더 + plate 심링크 + Nuke 스크립트
+
+**태스크별 nk 경로:**
+```
+{shot}/comp/nk/EP01_S004_0002_comp_v001.nk   # --task comp (기본)
+{shot}/roto/nk/EP01_S004_0002_roto_v001.nk   # --task roto
+{shot}/prep/nk/EP01_S004_0002_prep_v001.nk   # --task prep
+```
 
 ---
 
 ### 5.4 create_nk.py — Nuke 스크립트 생성
 
 ```bash
-python3 tools/create_nk.py AAB --all                         # 전체 (스킵)
-python3 tools/create_nk.py AAB --all --force                 # 전체 (덮어쓰기)
+python3 tools/create_nk.py AAB --all                         # 전체 comp (스킵)
+python3 tools/create_nk.py AAB --all --force                 # 전체 comp (덮어쓰기)
+python3 tools/create_nk.py AAB --all --task roto             # 전체 roto
 python3 tools/create_nk.py AAB EP01_S004_0002 --new-version  # 버전업
 python3 tools/create_nk.py AAB EP01_S004_0002 --slate        # 슬레이트 (UHD)
 ```
@@ -419,13 +431,15 @@ from_client/260410/
 **순서: shots → preview → comment**
 
 ```bash
-# 1. 샷 등록 + description
+# 1. 샷 등록 + description (추가 태스크 지정 가능)
 python3 tools/update_kitsu_shots.py AAB --all --folder 260410
+python3 tools/update_kitsu_shots.py AAB --all --folder 260410 --task roto  # roto 태스크 추가
 
-# 2. editor preview 업로드 (아래에 깔림)
+# 2. editor preview 업로드 (태스크 지정 가능)
 python3 tools/update_kitsu_preview.py AAB --folder 260410
+python3 tools/update_kitsu_preview.py AAB --folder 260410 --task roto  # roto에 업로드
 
-# 3. VFX_Work comment (위에 표시)
+# 3. VFX_Work comment (중복 자동 방지)
 python3 tools/update_kitsu_comment.py AAB --folder 260410
 ```
 
@@ -439,10 +453,10 @@ python3 tools/update_kitsu.py AAB --all --folder 260410
 
 | 도구 | 읽는 것 | Kitsu 반영 |
 |------|---------|-----------|
-| `update_kitsu_shots.py --all` | plates/ | 샷/에피소드/시퀀스 등록 + 프레임 레인지 |
+| `update_kitsu_shots.py --all` | plates/ | 샷 등록 + 프레임 레인지 + 태스크 생성 |
 | `update_kitsu_shots.py --folder` | shots.csv | description 업데이트 |
-| `update_kitsu_preview.py` | editor MOV 파일 | COMPOSITING preview 업로드 |
-| `update_kitsu_comment.py` | notes.csv | 태스크별 comment 생성 |
+| `update_kitsu_preview.py` | editor MOV 파일 | 태스크별 preview 업로드 (`--task` 지정) |
+| `update_kitsu_comment.py` | notes.csv | 태스크별 comment 생성 (중복 방지) |
 
 **서브폴더 지정:**
 
@@ -731,4 +745,15 @@ python3 tools/convert_excel.py AAB --folder 260410
 python3 tools/update_kitsu_shots.py AAB --folder 260410
 python3 tools/update_kitsu_preview.py AAB --folder 260410
 python3 tools/update_kitsu_comment.py AAB --folder 260410
+```
+
+### Roto/Prep 태스크 프로젝트
+
+```bash
+python3 tools/ingest_plate.py AAA --folder 20241125
+python3 tools/setup_shot.py AAA --all --task roto
+python3 tools/convert_excel.py AAA --folder 20241125
+python3 tools/update_kitsu_shots.py AAA --all --task roto --folder 20241125
+python3 tools/update_kitsu_preview.py AAA --folder 20241125 --task roto
+python3 tools/update_kitsu_comment.py AAA --folder 20241125
 ```
