@@ -51,8 +51,8 @@ python3 /Volumes/skyfall/opt/skyfall-dev/pipeline/tools/kitsu_login.py
 
 ```
 === SKYFALL Kitsu Login ===
-Use default URL [https://shows.skyfall.studio/api]? (y/n): y
-Email: artist@skyfall.studio
+Use default URL [https://your-kitsu-server/api]? (y/n): y
+Email: your-email@studio.com
 Password:
 ✅ Login Successful!
 ```

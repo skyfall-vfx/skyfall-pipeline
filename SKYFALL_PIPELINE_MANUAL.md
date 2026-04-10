@@ -617,10 +617,10 @@ workflow: hd  # uhd 또는 hd
 
 | 항목 | 값 |
 |------|-----|
-| URL | https://shows.skyfall.studio |
-| 서버 | Proxmox VM (10.10.10.37) |
-| SSH | skyfowww@10.10.10.37 |
-| 인코딩 | 동기 모드 (ENABLE_JOB_QUEUE=false) |
+| URL | KITSU_API_URL 환경변수 참조 |
+| 인코딩 | 동기 모드 |
+
+> 서버 접속 정보는 사내 Wiki를 참조하세요.
 
 ### Kitsu 데이터 구조
 
@@ -663,7 +663,7 @@ python3 tools/create_nk.py AAB --all --force
 ### Kitsu preview 인코딩 안 됨
 
 ```bash
-ssh skyfowww@10.10.10.37
+# Kitsu 서버에 SSH 접속 후 (접속 정보는 사내 Wiki 참조)
 sudo tail -30 /opt/zou/logs/gunicorn_error.log
 cat /etc/zou/zou.env  # ENABLE_JOB_QUEUE=false 확인
 ```
@@ -697,7 +697,7 @@ python3 tools/kitsu_login.py
 | 변수 | 용도 | 기본값 |
 |------|------|--------|
 | `SKYFALL_SHOWS_DIR` | 쇼 루트 경로 | `/Volumes/skyfall/shows` |
-| `KITSU_API_URL` | Kitsu API URL | `https://shows.skyfall.studio/api` |
+| `KITSU_API_URL` | Kitsu API URL | (사내 설정 참조) |
 | `KITSU_ACCESS_TOKEN` | Kitsu 인증 토큰 | (token_cache.json) |
 | `SKYFALL_SHOW` | Nuke 플러그인 등록용 | (자동 감지) |
 
