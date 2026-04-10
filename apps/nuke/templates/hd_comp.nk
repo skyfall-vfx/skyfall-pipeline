@@ -1,0 +1,88 @@
+Root {
+ inputs 0
+ name {{SCRIPT_PATH}}
+ frame {{FRAME_IN}}
+ first_frame {{FRAME_IN}}
+ last_frame {{FRAME_OUT}}
+ lock_range true
+ fps {{FPS}}
+ format "{{WIDTH}} {{HEIGHT}} 0 0 {{WIDTH}} {{HEIGHT}} 1 {{FORMAT_NAME}}"
+ colorManagement OCIO
+ OCIO_config custom
+ customOCIOConfigPath {{OCIO_CONFIG_PATH}}
+ defaultViewerLUT "OCIO LUTs"
+ workingSpaceLUT scene_linear
+ monitorLut "Rec.709 (ACES)"
+ monitorOutLUT "Rec.709 (ACES)"
+ int8Lut matte_paint
+ int16Lut texture_paint
+ logLut compositing_log
+ floatLut scene_linear
+ onScriptLoad "if nuke.env\['LINUX']:\n  nuke.tcl('load ffmpegReader')\n  nuke.tcl('load ffmpegWriter')\nelse:\n  nuke.tcl('load movReader')\n  nuke.tcl('load movWriter')"
+}
+BackdropNode {
+ inputs 0
+ name BackdropNode_PLATE
+ tile_color 0x2d6b4aff
+ label "<center>{{SHOT_CODE}}\nPLATE"
+ note_font_size 36
+ xpos -160
+ ypos -473
+ bdwidth 230
+ bdheight 220
+}
+BackdropNode {
+ inputs 0
+ name BackdropNode_REVIEW
+ tile_color 0x6b4a28ff
+ label "<center>REVIEW"
+ note_font_size 36
+ xpos -160
+ ypos 68
+ bdwidth 230
+ bdheight 180
+}
+Read {
+ inputs 0
+ file {{PLATE_PATH}}
+ first 1
+ last {{ORIG_LAST}}
+ origfirst 1
+ origlast {{ORIG_LAST}}
+ frame_mode "start at"
+ frame {{FRAME_IN}}
+ before black
+ after black
+ colorspace "{{CAMERA_COLORSPACE}}"
+ name Read_PLATE
+ label "PLATE"
+ xpos -110
+ ypos -413
+}
+Write {
+ inputs 1
+ file {{REVIEW_PATH}}
+ file_type mov
+ mov64_codec apcn
+ mov64_fps {{FPS}}
+ mov64_write_timecode true
+ mov64_fast_start true
+ colorspace "{{REVIEW_COLORSPACE}}"
+ channels rgb
+ create_directories true
+ first {{FRAME_IN}}
+ last {{FRAME_OUT}}
+ name Write_REVIEW
+ label "REVIEW\nProRes422 {{REVIEW_WIDTH}}x{{REVIEW_HEIGHT}}"
+ xpos -110
+ ypos 136
+}
+Viewer {
+ frame {{FRAME_IN}}
+ frame_range {{FRAME_IN}}-{{FRAME_OUT}}
+ fps {{FPS}}
+ viewerProcess "Rec.709 (ACES)"
+ name Viewer1
+ xpos 160
+ ypos 136
+}

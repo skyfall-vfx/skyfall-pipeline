@@ -1,0 +1,61 @@
+Root {
+ inputs 0
+ name {{SCRIPT_PATH}}
+ first_frame {{FRAME_IN}}
+ last_frame {{FRAME_OUT}}
+ fps {{FPS}}
+ format "{{WIDTH}} {{HEIGHT}} 0 0 {{WIDTH}} {{HEIGHT}} 1 {{FORMAT_NAME}}"
+ colorManagement OCIO
+ OCIO_config custom
+ customOCIOConfigPath {{OCIO_CONFIG_PATH}}
+}
+Read {
+ inputs 0
+ file {{PLATE_PATH}}
+ first {{FRAME_IN}}
+ last {{FRAME_OUT}}
+ origfirst {{FRAME_IN}}
+ origlast {{FRAME_OUT}}
+ colorspace "{{CAMERA_COLORSPACE}}"
+ name Read_PLATE
+ label "PLATE"
+ xpos -40
+ ypos -220
+}
+Write {
+ inputs 1
+ file {{RENDER_PATH}}
+ file_type exr
+ datatype "16 bit half"
+ compression "Zip (1 scanline)"
+ colorspace "{{OUTPUT_COLORSPACE}}"
+ channels rgba
+ name Write_PUBLISH
+ label "PUBLISH\n{{OUTPUT_COLORSPACE}}"
+ xpos -40
+ ypos 120
+}
+Reformat {
+ inputs 1
+ type "to box"
+ box_width {{REVIEW_WIDTH}}
+ box_height {{REVIEW_HEIGHT}}
+ box_fixed true
+ resize width
+ name Reformat_REVIEW
+ xpos 160
+ ypos 120
+}
+Write {
+ inputs 1
+ file {{REVIEW_PATH}}
+ file_type mov
+ mov64_codec apcn
+ mov64_fps {{FPS}}
+ colorspace "{{REVIEW_COLORSPACE}}"
+ channels rgb
+ name Write_REVIEW
+ label "REVIEW\nProRes422 {{REVIEW_WIDTH}}x{{REVIEW_HEIGHT}}"
+ xpos 160
+ ypos 220
+}

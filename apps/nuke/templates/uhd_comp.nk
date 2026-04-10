@@ -1,0 +1,143 @@
+Root {
+ inputs 0
+ name {{SCRIPT_PATH}}
+ frame {{FRAME_IN}}
+ first_frame {{FRAME_IN}}
+ last_frame {{FRAME_OUT}}
+ lock_range true
+ fps {{FPS}}
+ format "{{WIDTH}} {{HEIGHT}} 0 0 {{WIDTH}} {{HEIGHT}} 1 {{FORMAT_NAME}}"
+ colorManagement OCIO
+ OCIO_config custom
+ customOCIOConfigPath {{OCIO_CONFIG_PATH}}
+ defaultViewerLUT "OCIO LUTs"
+ workingSpaceLUT scene_linear
+ monitorLut "Rec.709 (ACES)"
+ monitorOutLUT "Rec.709 (ACES)"
+ int8Lut matte_paint
+ int16Lut texture_paint
+ logLut compositing_log
+ floatLut scene_linear
+ onScriptLoad "if nuke.env\['LINUX']:\n  nuke.tcl('load ffmpegReader')\n  nuke.tcl('load ffmpegWriter')\nelse:\n  nuke.tcl('load movReader')\n  nuke.tcl('load movWriter')"
+}
+BackdropNode {
+ inputs 0
+ name BackdropNode_PLATE
+ tile_color 0x2d6b4aff
+ label "<center>{{SHOT_CODE}}\nPLATE"
+ note_font_size 36
+ xpos -160
+ ypos -473
+ bdwidth 230
+ bdheight 220
+}
+BackdropNode {
+ inputs 0
+ name BackdropNode_PUBLISH
+ tile_color 0x284a6bff
+ label "<center>PUBLISH"
+ note_font_size 36
+ xpos -160
+ ypos 70
+ bdwidth 230
+ bdheight 180
+}
+BackdropNode {
+ inputs 0
+ name BackdropNode_REVIEW
+ tile_color 0x6b4a28ff
+ label "<center>REVIEW"
+ note_font_size 36
+ xpos 150
+ ypos 68
+ bdwidth 225
+ bdheight 182
+}
+Read {
+ inputs 0
+ file_type exr
+ file {{PLATE_PATH}}
+ format "{{WIDTH}} {{HEIGHT}} 0 0 {{WIDTH}} {{HEIGHT}} 1 {{FORMAT_NAME}}"
+ first {{FRAME_IN}}
+ last {{FRAME_OUT}}
+ origfirst {{FRAME_IN}}
+ origlast {{FRAME_OUT}}
+ before black
+ after black
+ frame_mode "start at"
+ frame {{FRAME_IN}}
+ origset true
+ colorspace "{{CAMERA_COLORSPACE}}"
+ auto_alpha true
+ name Read_PLATE
+ label "PLATE"
+ xpos -110
+ ypos -413
+}
+Dot {
+ name Dot1
+ xpos -76
+ ypos -50
+}
+set Nsplit [stack 0]
+Dot {
+ name Dot2
+ xpos 253
+ ypos -50
+}
+Reformat {
+ type "to box"
+ box_width {{REVIEW_WIDTH}}
+ box_height {{REVIEW_HEIGHT}}
+ box_fixed true
+ resize width
+ name Reformat_REVIEW
+ xpos 219
+ ypos 136
+}
+set Nreformat [stack 0]
+Viewer {
+ frame {{FRAME_IN}}
+ frame_range {{FRAME_IN}}-{{FRAME_OUT}}
+ fps {{FPS}}
+ viewerProcess "Rec.709 (ACES)"
+ name Viewer1
+ xpos 491
+ ypos 339
+}
+push $Nsplit
+Write {
+ inputs 1
+ channels rgba
+ file {{RENDER_PATH}}
+ file_type exr
+ datatype "16 bit half"
+ compression "Zip (1 scanline)"
+ colorspace "{{OUTPUT_COLORSPACE}}"
+ create_directories true
+ first {{FRAME_IN}}
+ last {{FRAME_OUT}}
+ name Write_PUBLISH
+ label "PUBLISH\n{{OUTPUT_COLORSPACE}}"
+ xpos -110
+ ypos 154
+}
+push $Nreformat
+Write {
+ inputs 1
+ file {{REVIEW_PATH}}
+ file_type mov
+ mov64_codec apcn
+ mov64_fps {{FPS}}
+ mov64_write_timecode true
+ mov64_fast_start true
+ colorspace "{{REVIEW_COLORSPACE}}"
+ channels rgb
+ create_directories true
+ first {{FRAME_IN}}
+ last {{FRAME_OUT}}
+ name Write_REVIEW
+ label "REVIEW\nProRes422 {{REVIEW_WIDTH}}x{{REVIEW_HEIGHT}}"
+ xpos 219
+ ypos 169
+}
