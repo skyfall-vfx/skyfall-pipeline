@@ -41,7 +41,7 @@ def build_menu():
     sky_menu.addCommand("Publish/Check Assets",
         "from apps.nuke import validator; validator.run_manual()")
     sky_menu.addCommand("Publish/Smart Publish",
-        "nuke.message('Validator Initializing...')")
+        "from apps.nuke import validator; validator.smart_publish()")
 
     sky_menu.addCommand("-", "", "")
 

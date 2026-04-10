@@ -336,6 +336,39 @@ class KitsuAPI:
             None
         )
 
+    def publish_to_task(self, project_name: str, shot_code: str, task_type: str,
+                        file_path: str, comment_text: str) -> Optional[str]:
+        """
+        파일을 Kitsu 태스크에 publish합니다.
+        comment 생성 → preview 업로드 → 썸네일 설정
+        반환: preview_id 또는 None
+        """
+        proj = self.get_project(project_name)
+        if not proj:
+            return None
+
+        parts = shot_code.split("_")
+        episode = parts[0] if len(parts) == 3 else None
+        sequence = parts[1] if len(parts) == 3 else parts[0]
+        shot = parts[2] if len(parts) == 3 else parts[1]
+
+        shot_data = self.get_shot_data(proj['id'], shot, episode=episode, sequence=sequence)
+        if not shot_data:
+            return None
+
+        task = self.get_task_for_shot(shot_data['id'], task_type)
+        if not task:
+            return None
+
+        comment = self.add_comment(task['id'], comment_text)
+        if not comment or not comment.get('id'):
+            return None
+
+        preview_id = self.upload_preview(task['id'], comment['id'], file_path)
+        if preview_id:
+            self.set_main_preview(shot_data['id'], preview_id)
+        return preview_id
+
     def set_main_preview(self, shot_id: str, preview_id: str) -> bool:
         """샷의 메인 썸네일을 preview로 설정합니다."""
         result = self._put(f"/data/entities/{shot_id}", {"preview_file_id": preview_id})

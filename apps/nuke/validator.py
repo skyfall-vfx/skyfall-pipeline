@@ -7,21 +7,17 @@ from core.env import get_project_config
 
 logger = logging.getLogger("skyfall.validator")
 
-# 허용 색심도 (EXR 기준)
-_ALLOWED_COLORSPACE_KEYWORDS = ("aces", "linear", "acescg")
-_ALLOWED_EXTENSIONS = (".exr",)
-_REQUIRED_BIT_DEPTH = "16"  # Nuke datatype 문자열에 포함되어야 함
-
 
 class PublishValidator:
     """
     SKYFALL Strict Validator
-    Ensures all rendering/publishing meets studio standards.
+    워크플로우(uhd/hd)에 따라 검증 기준이 달라집니다.
     """
     def __init__(self, write_node=None):
         self.node = write_node or nuke.thisNode()
         self.ctx = context.get_current()
         self.cfg = get_project_config(self.ctx.project) if self.ctx.project else {}
+        self.workflow = self.cfg.get("workflow", "uhd")
         self.errors = []
 
     def validate_all(self) -> bool:
@@ -37,11 +33,21 @@ class PublishValidator:
             self.errors.append(f"Node '{self.node.name()}' has no 'file' knob. Is this a Write node?")
             return False
 
-        self.check_resolution()
-        self.check_naming()
-        self.check_output_path_exists()
-        self.check_frame_range()
-        self.check_file_format()
+        node_name = self.node.name()
+
+        # Write_REVIEW는 별도 검증
+        if "REVIEW" in node_name:
+            self.check_review_node()
+        else:
+            # Write_PUBLISH 또는 기타 Write
+            self.check_resolution()
+            self.check_naming()
+            self.check_output_path_exists()
+            self.check_frame_range()
+            if self.workflow == "uhd":
+                self.check_exr_format()
+            else:
+                self.check_mov_format()
 
         return len(self.errors) == 0
 
@@ -63,7 +69,7 @@ class PublishValidator:
         pattern = rf"^{re.escape(shot_code)}_[a-zA-Z0-9]+_v\d{{3}}\."
         if not re.match(pattern, file_name):
             self.errors.append(
-                f"Naming Error: File must match '{shot_code}_<task>_v###.exr' "
+                f"Naming Error: File must match '{shot_code}_<task>_v###' "
                 f"(got: '{file_name}')"
             )
 
@@ -84,10 +90,7 @@ class PublishValidator:
             )
 
     def check_frame_range(self):
-        """
-        use_limit 여부와 무관하게 Write 노드 렌더 범위를 검사합니다.
-        use_limit=False면 Nuke 프로젝트 전체 범위로 렌더되므로, 그 범위도 검사합니다.
-        """
+        """Write 노드 렌더 범위를 검사합니다."""
         root = nuke.root()
         proj_first = int(root['first_frame'].value())
         proj_last = int(root['last_frame'].value())
@@ -105,47 +108,81 @@ class PublishValidator:
                 f"but project is {proj_first}-{proj_last}."
             )
 
-    def check_file_format(self):
-        """파일 확장자(EXR 필수), 색심도(16-bit 이상), 압축(ZIP1), 출력 색공간(ACEScct) 검사."""
+    def check_exr_format(self):
+        """UHD: EXR 포맷, 16-bit, 압축, 컬러스페이스 검사."""
         file_path = self.node['file'].value()
         clean_path = re.sub(r"(%\d+d|#+)", "0000", file_path)
         _, ext = os.path.splitext(clean_path)
 
-        if ext.lower() not in _ALLOWED_EXTENSIONS:
+        if ext.lower() != ".exr":
             self.errors.append(
-                f"Format Error: Only EXR is allowed for publish (got '{ext}'). "
-                f"MOV/JPG/etc. are not accepted."
+                f"Format Error: UHD publish requires EXR (got '{ext}')."
             )
             return
 
         # 비트 뎁스 확인 (16-bit half 또는 32-bit float)
         if 'datatype' in self.node.knobs():
             datatype = self.node['datatype'].value()
-            if _REQUIRED_BIT_DEPTH not in datatype and "32" not in datatype:
+            if "16" not in datatype and "32" not in datatype:
                 self.errors.append(
                     f"Bit Depth Error: EXR must be 16-bit half or 32-bit float "
-                    f"(got: '{datatype}'). 8-bit EXR is not allowed."
+                    f"(got: '{datatype}')."
                 )
 
-        # 압축 방식 확인 (ZIP1 필수 — Netflix 납품 스펙)
+        # 압축 방식
         if 'compression' in self.node.knobs():
             compression = self.node['compression'].value()
-            expected_compressor = self.cfg.get("output_compressor", "zip1").lower()
-            if expected_compressor not in compression.lower():
+            expected = self.cfg.get("output_compressor", "zip1").lower()
+            if expected not in compression.lower():
                 self.errors.append(
-                    f"Compression Error: Must use '{expected_compressor.upper()}' compression "
-                    f"(got: '{compression}'). Netflix delivery spec requires ZIP1."
+                    f"Compression Error: Must use '{expected.upper()}' "
+                    f"(got: '{compression}')."
                 )
 
-        # 출력 색공간 확인 (project.yml의 output_colorspace 기준)
-        if 'colorspace' in self.node.knobs():
-            cs = self.node['colorspace'].value()
-            expected_cs = self.cfg.get("output_colorspace", "ACES - ACEScct")
-            if expected_cs.lower() not in cs.lower():
-                self.errors.append(
-                    f"Colorspace Error: Output must be '{expected_cs}' "
-                    f"(got: '{cs}'). project.yml output_colorspace 설정을 확인하세요."
-                )
+        # 출력 색공간
+        self._check_colorspace("output_colorspace")
+
+    def check_mov_format(self):
+        """HD: MOV 포맷, 코덱, 컬러스페이스 검사."""
+        file_path = self.node['file'].value()
+        clean_path = re.sub(r"(%\d+d|#+)", "0000", file_path)
+        _, ext = os.path.splitext(clean_path)
+
+        if ext.lower() not in (".mov", ".mp4"):
+            self.errors.append(
+                f"Format Error: HD publish requires MOV (got '{ext}')."
+            )
+            return
+
+        # 출력 색공간
+        self._check_colorspace("output_colorspace")
+
+    def check_review_node(self):
+        """Write_REVIEW 노드 검증 (UHD/HD 공통)."""
+        self.check_naming()
+        self.check_output_path_exists()
+        self.check_frame_range()
+
+        # 리뷰 해상도 확인
+        review_res = self.cfg.get("review_resolution", [1920, 1080])
+        target_res = tuple(review_res) if isinstance(review_res, list) else (1920, 1080)
+        actual_res = (self.node.width(), self.node.height())
+        if actual_res != target_res:
+            self.errors.append(
+                f"Review Resolution Mismatch: Expected {target_res[0]}x{target_res[1]}, got {actual_res[0]}x{actual_res[1]}"
+            )
+
+    def _check_colorspace(self, config_key: str):
+        """Write 노드의 colorspace를 project.yml 기준으로 검사합니다."""
+        if 'colorspace' not in self.node.knobs():
+            return
+        cs = self.node['colorspace'].value()
+        expected_cs = self.cfg.get(config_key, "")
+        if expected_cs and expected_cs.lower() not in cs.lower():
+            self.errors.append(
+                f"Colorspace Error: Expected '{expected_cs}' "
+                f"(got: '{cs}'). project.yml {config_key} 설정을 확인하세요."
+            )
 
     def get_error_message(self) -> str:
         return "\n".join([f"• {err}" for err in self.errors])
@@ -160,12 +197,148 @@ def validate_render():
         raise RuntimeError(f"Publish Validation Failed:\n{error_msg}")
 
 
+def smart_publish():
+    """
+    Smart Publish: 검증 → 렌더 → Kitsu preview 업로드
+    1. 모든 Write 노드 검증
+    2. 통과하면 렌더 실행
+    3. 렌더 완료 후 review MOV를 Kitsu에 preview로 업로드
+    """
+    import threading
+
+    write_nodes = [n for n in nuke.allNodes("Write")]
+    if not write_nodes:
+        nuke.message("Write 노드가 없습니다.")
+        return
+
+    # 1. 검증
+    all_errors = []
+    for wn in write_nodes:
+        v = PublishValidator(write_node=wn)
+        if not v.validate_all():
+            all_errors.append(f"<b>{wn.name()}</b>\n{v.get_error_message()}")
+
+    if all_errors:
+        nuke.message(
+            f"<font color='red'><b>PUBLISH DENIED</b></font>\n\n" + "\n\n".join(all_errors)
+        )
+        return
+
+    # 2. 렌더 확인
+    ctx = context.get_current()
+    cfg = get_project_config(ctx.project) if ctx.project else {}
+    workflow = cfg.get("workflow", "uhd")
+
+    # 렌더할 Write 노드 결정
+    review_node = nuke.toNode("Write_REVIEW")
+    publish_node = nuke.toNode("Write_PUBLISH")
+
+    render_nodes = []
+    if workflow == "uhd" and publish_node:
+        render_nodes.append(publish_node)
+    if review_node:
+        render_nodes.append(review_node)
+
+    if not render_nodes:
+        nuke.message("렌더할 Write 노드를 찾을 수 없습니다. (Write_REVIEW / Write_PUBLISH)")
+        return
+
+    node_names = ", ".join([n.name() for n in render_nodes])
+    root = nuke.root()
+    first = int(root['first_frame'].value())
+    last = int(root['last_frame'].value())
+
+    if not nuke.ask(f"Smart Publish\n\n"
+                    f"렌더 노드: {node_names}\n"
+                    f"프레임: {first} - {last}\n\n"
+                    f"렌더를 시작하시겠습니까?"):
+        return
+
+    # 3. 렌더 실행
+    try:
+        for rn in render_nodes:
+            nuke.execute(rn, first, last)
+    except Exception as e:
+        nuke.message(f"<font color='red'><b>RENDER FAILED</b></font>\n\n{e}")
+        return
+
+    # 4. Kitsu preview 업로드 (review MOV)
+    if review_node and ctx.is_valid:
+        review_path = review_node['file'].value()
+        review_path = re.sub(r"%\d+d", "", review_path)
+
+        if os.path.exists(review_path):
+            try:
+                from services.kitsu import KitsuAPI
+                kitsu = KitsuAPI()
+
+                # 태스크 자동 감지 (nk 파일명에서)
+                script_name = os.path.basename(nuke.root().name())
+                task_match = re.search(rf"{ctx.shot_code}_(\w+)_v\d+\.nk", script_name)
+                task_name = task_match.group(1) if task_match else "comp"
+                task_type = {"comp": "compositing", "roto": "rotoscoping",
+                             "prep": "prep", "matte": "matte painting",
+                             "fx": "fx"}.get(task_name, task_name)
+
+                # 버전 감지 (nk 파일명에서)
+                ver_match = re.search(r"_v(\d+)\.nk", script_name)
+                ver_str = f"v{ver_match.group(1)}" if ver_match else "v001"
+
+                preview_id = kitsu.publish_to_task(
+                    ctx.project, ctx.shot_code, task_type,
+                    review_path, f"Publish {ver_str}: {os.path.basename(review_path)}"
+                )
+
+                if preview_id:
+                    nuke.message(
+                        f"<font color='green'><b>SMART PUBLISH COMPLETE</b></font>\n\n"
+                        f"렌더: {node_names}\n"
+                        f"프레임: {first}-{last}\n"
+                        f"Kitsu: preview 업로드 완료 ({ver_str})"
+                    )
+                    return
+                else:
+                    nuke.message(
+                        f"<font color='green'><b>RENDER COMPLETE</b></font>\n\n"
+                        f"렌더: {node_names}\n"
+                        f"프레임: {first}-{last}\n\n"
+                        f"<font color='orange'>Kitsu 업로드 실패 (샷/태스크 확인)</font>"
+                    )
+                    return
+
+            except Exception as e:
+                nuke.message(
+                    f"<font color='green'><b>RENDER COMPLETE</b></font>\n\n"
+                    f"렌더: {node_names}\n"
+                    f"프레임: {first}-{last}\n\n"
+                    f"<font color='orange'>Kitsu 업로드 실패: {e}</font>"
+                )
+                return
+
+    nuke.message(
+        f"<font color='green'><b>RENDER COMPLETE</b></font>\n\n"
+        f"렌더: {node_names}\n"
+        f"프레임: {first}-{last}\n\n"
+        f"Kitsu 업로드는 수동으로 진행하세요."
+    )
+
+
 def run_manual():
-    """메뉴에서 수동으로 검증을 실행합니다."""
-    validator = PublishValidator()
-    if validator.validate_all():
-        nuke.message("<font color='green'><b>VALIDATION PASSED</b></font>\n\nReady to publish.")
+    """메뉴에서 수동으로 검증을 실행합니다. 모든 Write 노드를 검사합니다."""
+    write_nodes = [n for n in nuke.allNodes("Write")]
+    if not write_nodes:
+        nuke.message("Write 노드가 없습니다.")
+        return
+
+    all_errors = []
+    for wn in write_nodes:
+        validator = PublishValidator(write_node=wn)
+        if not validator.validate_all():
+            all_errors.append(f"<b>{wn.name()}</b>\n{validator.get_error_message()}")
+
+    if not all_errors:
+        nuke.message("<font color='green'><b>VALIDATION PASSED</b></font>\n\nAll Write nodes ready to publish.")
     else:
         nuke.message(
-            f"<font color='red'><b>VALIDATION FAILED</b></font>\n\n{validator.get_error_message()}"
+            f"<font color='red'><b>VALIDATION FAILED</b></font>\n\n" + "\n\n".join(all_errors)
         )
