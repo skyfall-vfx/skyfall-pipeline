@@ -59,7 +59,13 @@ def _detect_frame_range(plates_dir: Path, shot_code: str, fps: float) -> tuple[i
     return 1001, 1100
 
 
-def register_shots(show: str, kitsu: KitsuAPI, dry_run: bool = False):
+_TASK_MAP = {
+    "comp": "compositing", "roto": "rotoscoping",
+    "prep": "prep", "matte": "matte painting", "fx": "fx",
+}
+
+
+def register_shots(show: str, kitsu: KitsuAPI, dry_run: bool = False, extra_tasks: list = None):
     """plates/ 기준으로 전체 샷을 Kitsu에 등록합니다."""
     show_root = get_shows_root() / show
     shots = collect_ingested_shots(show_root)
@@ -88,7 +94,7 @@ def register_shots(show: str, kitsu: KitsuAPI, dry_run: bool = False):
 
         print(f"  {shot_code}", end="  ")
         try:
-            kitsu.get_or_create_shot(show, episode, sequence, shot, frame_in, frame_out)
+            kitsu.get_or_create_shot(show, episode, sequence, shot, frame_in, frame_out, extra_tasks=extra_tasks)
         except Exception as e:
             print(f"❌ {e}")
 
@@ -108,8 +114,13 @@ def update_description(show: str, kitsu: KitsuAPI, folder_filter: str,
 
         shots_csv = top_dir / "shots.csv"
         if not shots_csv.exists():
-            print(f"     (shots.csv 없음 — 먼저 convert_excel.py 실행)")
-            continue
+            # 서브폴더 탐색
+            found = list(top_dir.rglob("shots.csv"))
+            if found:
+                shots_csv = found[0]
+            else:
+                print(f"     (shots.csv 없음 — 먼저 convert_excel.py 실행)")
+                continue
 
         with open(shots_csv, encoding="utf-8-sig") as f:
             entries = list(csv.DictReader(f))
@@ -134,7 +145,7 @@ def update_description(show: str, kitsu: KitsuAPI, folder_filter: str,
                 print(f"     ❌ Kitsu project '{show}' 없음")
                 return
 
-            shot_data = kitsu.get_shot_data(proj["id"], shot)
+            shot_data = kitsu.get_shot_data(proj["id"], shot, episode=episode, sequence=sequence)
             if not shot_data:
                 print(f"     ⚠  {shot_code} — Kitsu 샷 없음 (먼저 --all로 등록)")
                 continue
@@ -166,16 +177,22 @@ if __name__ == "__main__":
     parser.add_argument("show",       help="Show 코드 (예: AAB)")
     parser.add_argument("--all",      action="store_true", help="plates/ 기준 전체 샷 Kitsu 등록")
     parser.add_argument("--folder",   help="from_client 폴더 (Excel description 처리)")
+    parser.add_argument("--task",     action="append", help="추가 태스크 (comp/roto/prep, 여러 번 사용 가능)")
     parser.add_argument("--dry-run",  action="store_true", help="실제 처리 없이 확인만")
     args = parser.parse_args()
 
     if not args.all and not args.folder:
         parser.error("--all 또는 --folder 중 하나를 지정하세요.")
 
+    # 태스크 이름 → Kitsu 태스크 타입으로 변환
+    extra_tasks = None
+    if args.task:
+        extra_tasks = [_TASK_MAP.get(t.lower(), t) for t in args.task]
+
     kitsu = KitsuAPI()
 
     if args.all:
-        register_shots(args.show, kitsu, dry_run=args.dry_run)
+        register_shots(args.show, kitsu, dry_run=args.dry_run, extra_tasks=extra_tasks)
 
     if args.folder:
         update_description(args.show, kitsu, args.folder, dry_run=args.dry_run)

@@ -133,20 +133,23 @@ def convert(show: str, folder_filter: str, dry_run: bool = False, force: bool = 
     for top_dir in top_dirs:
         print(f"  📂 {top_dir.name}")
 
-        # 중복 실행 방지
-        shots_csv = top_dir / "shots.csv"
-        notes_csv = top_dir / "notes.csv"
-        if not force and (shots_csv.exists() or notes_csv.exists()):
-            print(f"     ⚠  CSV 이미 존재 (덮어쓰려면 --force)")
-            if shots_csv.exists():
-                print(f"        {shots_csv.name}")
-            if notes_csv.exists():
-                print(f"        {notes_csv.name}")
-            continue
-
         excel_path = find_excel(top_dir)
         if not excel_path:
             print(f"     (Excel 없음)")
+            continue
+
+        # CSV는 Excel이 있는 폴더에 생성
+        csv_dir = excel_path.parent
+        shots_csv = csv_dir / "shots.csv"
+        notes_csv = csv_dir / "notes.csv"
+
+        # 중복 실행 방지
+        if not force and (shots_csv.exists() or notes_csv.exists()):
+            print(f"     ⚠  CSV 이미 존재 (덮어쓰려면 --force)")
+            if shots_csv.exists():
+                print(f"        {shots_csv}")
+            if notes_csv.exists():
+                print(f"        {notes_csv}")
             continue
 
         print(f"  📋 Excel: {excel_path.name}")

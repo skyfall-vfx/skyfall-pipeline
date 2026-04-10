@@ -133,11 +133,11 @@ def find_plate_path(central_plate_dir: Path, shot_code: str,
     return f"{plate_link.as_posix()}/v001/{shot_code}_org_v001.%04d.exr"
 
 
-def _next_nk_version(nk_dir: Path, shot_code: str) -> int:
-    """comp/nk/ 에서 현재 최신 v번호 + 1 반환."""
+def _next_nk_version(nk_dir: Path, shot_code: str, task: str = "comp") -> int:
+    """{task}/nk/ 에서 현재 최신 v번호 + 1 반환."""
     nums = []
-    for f in nk_dir.glob(f"{shot_code}_comp_v*.nk"):
-        m = re.search(r"_comp_v(\d+)\.nk$", f.name)
+    for f in nk_dir.glob(f"{shot_code}_{task}_v*.nk"):
+        m = re.search(rf"_{task}_v(\d+)\.nk$", f.name)
         if m:
             nums.append(int(m.group(1)))
     return max(nums) + 1 if nums else 1
@@ -146,13 +146,14 @@ def _next_nk_version(nk_dir: Path, shot_code: str) -> int:
 def create_nk(show: str, shot_code: str,
               frame_in: int = 1001, frame_out: int = 1100,
               new_version: bool = False, force: bool = False,
-              slate: bool = False) -> Path | None:
+              slate: bool = False, task: str = "comp") -> Path | None:
     """
     nk 파일을 생성합니다. 생성된 파일 Path 반환, 스킵 시 None 반환.
 
     new_version=True : 다음 버전 번호로 생성
     force=True       : 기존 파일 덮어쓰기
     slate=True       : 슬레이트 포함 템플릿 사용 (UHD 전용)
+    task="comp"      : 태스크 타입 (comp/roto/prep)
     """
     parts = shot_code.split("_")
     if len(parts) == 3:
@@ -172,16 +173,19 @@ def create_nk(show: str, shot_code: str,
         print(f"  ❌ 샷 폴더 없음: {shot_path}  (setup_shot 먼저 실행)")
         return None
 
-    nk_dir    = shot_path / "comp" / "nk"
-    render_dir = shot_path / "comp" / "render"
-    review_dir = shot_path / "comp" / "review"
+    nk_dir    = shot_path / task / "nk"
+    render_dir = shot_path / task / "render"
+    review_dir = shot_path / task / "review"
     plate_link = shot_path / "plate"
     central_plate_dir = show_root / "plates" / shot_code
 
+    # nk 폴더 생성
+    nk_dir.mkdir(parents=True, exist_ok=True)
+
     # 버전 결정
-    ver_num = _next_nk_version(nk_dir, shot_code) if new_version else 1
+    ver_num = _next_nk_version(nk_dir, shot_code, task) if new_version else 1
     ver_str = f"v{ver_num:03d}"
-    nk_file = nk_dir / f"{shot_code}_comp_{ver_str}.nk"
+    nk_file = nk_dir / f"{shot_code}_{task}_{ver_str}.nk"
 
     if nk_file.exists() and not force:
         print(f"  ⏭  스킵 (이미 존재): {nk_file.name}")
@@ -205,23 +209,35 @@ def create_nk(show: str, shot_code: str,
     if workflow == "uhd":
         render_vdir = render_dir / ver_str
         render_vdir.mkdir(parents=True, exist_ok=True)
-        render_path = f"{render_vdir.as_posix()}/{shot_code}_comp_{ver_str}.%04d.exr"
+        render_path = f"{render_vdir.as_posix()}/{shot_code}_{task}_{ver_str}.%04d.exr"
     else:
         render_path = ""
 
     plate_path  = find_plate_path(central_plate_dir, shot_code, plate_link, workflow)
-    review_path = f"{review_vdir.as_posix()}/{shot_code}_comp_{ver_str}.mov"
+    review_path = f"{review_vdir.as_posix()}/{shot_code}_{task}_{ver_str}.mov"
     ocio_path   = get_ocio_config_for_project(show)
 
     orig_last = frame_out - frame_in + 1  # 기본값
 
-    # HD: MOV 파일에서 실제 frame range 자동 감지
+    # 실제 frame range 자동 감지
     if workflow == "hd":
+        # HD: MOV 파일에서 ffprobe로 감지
         mov_files = list(central_plate_dir.rglob("*.mov"))
         if mov_files:
             frame_in, frame_out = _mov_frame_range(mov_files[0], fps, start=1001)
-            orig_last = frame_out - frame_in + 1   # MOV 원본 프레임 수 (1-based)
+            orig_last = frame_out - frame_in + 1
             print(f"     ffprobe: {orig_last}프레임 [{frame_in}-{frame_out}]")
+    else:
+        # UHD: EXR 시퀀스 파일명에서 프레임 범위 감지
+        exr_files = list(central_plate_dir.rglob("*.exr"))
+        if exr_files:
+            frames = [int(m.group(1)) for f in exr_files
+                      if (m := re.search(r"\.(\d+)\.exr$", f.name, re.I))]
+            if frames:
+                frame_in = min(frames)
+                frame_out = max(frames)
+                orig_last = frame_out - frame_in + 1
+                print(f"     EXR: {orig_last}프레임 [{frame_in}-{frame_out}]")
 
     template_path = _select_template(workflow, slate)
     if template_path.exists():
@@ -319,6 +335,7 @@ if __name__ == "__main__":
     parser.add_argument("--force",       action="store_true", help="기존 파일 덮어쓰기")
     parser.add_argument("--all",         action="store_true", help="쇼 전체 샷 일괄 처리")
     parser.add_argument("--slate",       action="store_true", help="슬레이트 포함 (UHD 전용)")
+    parser.add_argument("--task",        default="comp", help="태스크 타입 (comp/roto/prep, 기본: comp)")
     args = parser.parse_args()
 
     show_root = get_shows_root() / args.show
@@ -336,7 +353,7 @@ if __name__ == "__main__":
             create_nk(args.show, sc,
                       frame_in=args.first, frame_out=args.last,
                       new_version=args.new_version, force=args.force,
-                      slate=args.slate)
+                      slate=args.slate, task=args.task)
         print(f"\n[SKYFALL] ✅ 완료")
     else:
         if not args.shot_code:
@@ -344,6 +361,6 @@ if __name__ == "__main__":
         nk = create_nk(args.show, args.shot_code,
                        frame_in=args.first, frame_out=args.last,
                        new_version=args.new_version, force=args.force,
-                       slate=args.slate)
+                       slate=args.slate, task=args.task)
         if nk:
             print(f"\n[SKYFALL] ✅ {nk}")

@@ -42,8 +42,13 @@ def update_comments(show: str, kitsu: KitsuAPI, folder_filter: str,
 
         notes_csv = top_dir / "notes.csv"
         if not notes_csv.exists():
-            print(f"     (notes.csv 없음 — 먼저 convert_excel.py 실행)")
-            continue
+            # 서브폴더 탐색
+            found = list(top_dir.rglob("notes.csv"))
+            if found:
+                notes_csv = found[0]
+            else:
+                print(f"     (notes.csv 없음 — 먼저 convert_excel.py 실행)")
+                continue
 
         with open(notes_csv, encoding="utf-8-sig") as f:
             entries = list(csv.DictReader(f))
@@ -76,7 +81,7 @@ def update_comments(show: str, kitsu: KitsuAPI, folder_filter: str,
                 print(f"     ❌ Kitsu project '{show}' 없음")
                 return
 
-            shot_data = kitsu.get_shot_data(proj["id"], shot)
+            shot_data = kitsu.get_shot_data(proj["id"], shot, episode=episode, sequence=sequence)
             if not shot_data:
                 print(f"     ⚠  {shot_code} — Kitsu 샷 없음")
                 continue
@@ -84,6 +89,12 @@ def update_comments(show: str, kitsu: KitsuAPI, folder_filter: str,
             task = kitsu.get_task_for_shot(shot_data["id"], task_type)
             if not task:
                 print(f"     {shot_code}  ⚠  {task_type.upper()} 태스크 없음")
+                continue
+
+            # 중복 체크: 같은 내용의 comment가 이미 있으면 스킵
+            existing = kitsu.get_comments(task["id"])
+            if any(c.get("text", "").strip() == note for c in existing):
+                print(f"     {shot_code}  ⏭  [{task_name}] 이미 존재")
                 continue
 
             comment = kitsu.add_comment(task["id"], note)

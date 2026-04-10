@@ -101,9 +101,30 @@ class KitsuAPI:
         projects = self._get("/data/projects")
         return next((p for p in projects if p.get('name') == name or p.get('code') == name), None)
 
-    def get_shot_data(self, project_id: str, shot_name: str) -> Optional[Dict]:
+    def get_shot_data(self, project_id: str, shot_name: str,
+                      episode: str = None, sequence: str = None) -> Optional[Dict]:
+        """샷을 조회합니다. episode/sequence가 주어지면 정확 매칭합니다."""
         shots = self._get(f"/data/projects/{project_id}/shots")
-        return next((s for s in shots if s.get('name') == shot_name), None)
+        if not episode and not sequence:
+            return next((s for s in shots if s.get('name') == shot_name), None)
+
+        # episode/sequence의 entity id를 먼저 찾아서 parent 체인으로 정확 매칭
+        entities = self._get(f"/data/entities?project_id={project_id}")
+        ep_id = None
+        seq_id = None
+        if episode:
+            ep_ent = next((e for e in entities if e.get('name') == episode), None)
+            ep_id = ep_ent['id'] if ep_ent else None
+        if sequence:
+            seq_ent = next((e for e in entities
+                           if e.get('name') == sequence
+                           and e.get('parent_id') == ep_id), None)
+            seq_id = seq_ent['id'] if seq_ent else None
+
+        parent_id = seq_id or ep_id
+        return next((s for s in shots
+                     if s.get('name') == shot_name
+                     and s.get('parent_id') == parent_id), None)
 
     def _get_entity_types(self) -> dict:
         types = self._get("/data/entity-types")
@@ -210,13 +231,17 @@ class KitsuAPI:
             logger.error(f"Task 생성 중 오류: {e}")
             return False
 
-    def assign_default_tasks(self, project_id: str, shot_id: str):
+    def assign_default_tasks(self, project_id: str, shot_id: str, extra_tasks: list = None):
         task_types = self._get_task_types()
         task_statuses = self._get_task_statuses()
         todo_status_id = task_statuses.get('todo') or task_statuses.get('rts')
 
-        # 기본 Task Type 목록 (향후 project.yml로 이동 예정)
+        # 기본 Task Type + 추가 태스크
         standard_tasks = ['compositing']
+        if extra_tasks:
+            for t in extra_tasks:
+                if t not in standard_tasks:
+                    standard_tasks.append(t)
         matched_ids = [task_types[n] for n in standard_tasks if n in task_types]
 
         self._ensure_project_task_types(project_id, matched_ids)
@@ -244,7 +269,8 @@ class KitsuAPI:
                     print(f"[SKYFALL] ❌ Failed to create Task '{t_name.upper()}'")
 
     def get_or_create_shot(self, project_name: str, episode: str, sequence: str, shot: str,
-                            frame_in: int = 1001, frame_out: int = 1100) -> Optional[dict]:
+                            frame_in: int = 1001, frame_out: int = 1100,
+                            extra_tasks: list = None) -> Optional[dict]:
         """
         Episode -> Sequence -> Shot 계층을 Kitsu에 생성합니다 (없으면).
         토큰이 없으면 RuntimeError를 발생시킵니다.
@@ -284,7 +310,7 @@ class KitsuAPI:
         if shot_ent and shot_ent.get('id'):
             # 기존 샷도 frame_in/frame_out 업데이트
             self.update_shot_data(shot_ent['id'], {"frame_in": frame_in, "frame_out": frame_out})
-            self.assign_default_tasks(proj_id, shot_ent['id'])
+            self.assign_default_tasks(proj_id, shot_ent['id'], extra_tasks=extra_tasks)
 
         return shot_ent
 
@@ -309,6 +335,10 @@ class KitsuAPI:
             (t for t in tasks if t.get("task_type_id") == target_id),
             None
         )
+
+    def get_comments(self, task_id: str) -> list:
+        """태스크의 기존 comment 목록을 반환합니다."""
+        return self._get(f"/data/tasks/{task_id}/comments") or []
 
     def add_comment(self, task_id: str, text: str, status_name: str = "todo") -> Optional[Dict]:
         """태스크에 코멘트를 추가합니다."""

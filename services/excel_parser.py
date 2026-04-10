@@ -26,9 +26,16 @@ _KNOWN_HEADERS = {
 
 
 def find_excel(folder: Path) -> Optional[Path]:
-    """폴더에서 Excel 파일을 찾습니다. (~$ 임시 파일 제외)"""
+    """폴더에서 Excel 파일을 찾습니다. 없으면 서브폴더까지 재귀 탐색. (~$ 임시 파일 제외)"""
+    # 현재 폴더 먼저
     for ext in ("*.xlsx", "*.xls"):
         files = sorted(folder.glob(ext))
+        files = [f for f in files if not f.name.startswith("~$")]
+        if files:
+            return files[0]
+    # 서브폴더 재귀 탐색
+    for ext in ("*.xlsx", "*.xls"):
+        files = sorted(folder.rglob(ext))
         files = [f for f in files if not f.name.startswith("~$")]
         if files:
             return files[0]

@@ -54,7 +54,7 @@ def _collect_ingested_shots(show_root: Path) -> list[str]:
 
 
 def setup_shot(show: str, shot_code: str, frame_in: int, frame_out: int,
-               dry_run: bool = False):
+               dry_run: bool = False, task: str = "comp"):
     """
     SKYFALL Shot Setup — ingest_plate 이후 샷 단위로 실행.
     1. 로컬 폴더 생성 + plate 심링크
@@ -102,8 +102,8 @@ def setup_shot(show: str, shot_code: str, frame_in: int, frame_out: int,
 
     # 3. Nuke 스크립트 생성
     # 새 버전 플레이트가 들어왔으면 nk 재생성 (force)
-    nk_dir = shot_path / "comp" / "nk"
-    nk_v001 = nk_dir / f"{shot_code}_comp_v001.nk"
+    nk_dir = shot_path / task / "nk"
+    nk_v001 = nk_dir / f"{shot_code}_{task}_v001.nk"
     force = False
     if nk_v001.exists():
         # nk 파일보다 새로운 플레이트 버전이 있는지 확인
@@ -118,10 +118,10 @@ def setup_shot(show: str, shot_code: str, frame_in: int, frame_out: int,
         if plate_newer:
             force = True
             print(f"(새 플레이트 감지 → nk 재생성) ", end="")
-    create_nk(show, shot_code, frame_in=frame_in, frame_out=frame_out, force=force)
+    create_nk(show, shot_code, frame_in=frame_in, frame_out=frame_out, force=force, task=task)
 
 
-def setup_all(show: str, frame_in: int, frame_out: int, dry_run: bool = False):
+def setup_all(show: str, frame_in: int, frame_out: int, dry_run: bool = False, task: str = "comp"):
     """plates/ 폴더 기준으로 인제스트된 전체 샷을 일괄 생성합니다."""
     show_root = get_shows_root() / show
     if not show_root.exists():
@@ -139,7 +139,7 @@ def setup_all(show: str, frame_in: int, frame_out: int, dry_run: bool = False):
     print()
 
     for shot_code in shots:
-        setup_shot(show, shot_code, frame_in, frame_out, dry_run=dry_run)
+        setup_shot(show, shot_code, frame_in, frame_out, dry_run=dry_run, task=task)
 
     print()
     if dry_run:
@@ -178,14 +178,15 @@ if __name__ == "__main__":
     parser.add_argument("--first",        type=int, default=1001, help="시작 프레임 (기본: 1001)")
     parser.add_argument("--last",         type=int, default=1100, help="마지막 프레임 (기본: 1100)")
     parser.add_argument("--all",          action="store_true", help="ingest된 전체 샷 일괄 생성")
+    parser.add_argument("--task",         default="comp", help="태스크 타입 (comp/roto/prep, 기본: comp)")
     parser.add_argument("--dry-run",      action="store_true", help="실제 생성 없이 확인만")
     args = parser.parse_args()
 
     if args.all:
-        setup_all(args.show, args.first, args.last, dry_run=args.dry_run)
+        setup_all(args.show, args.first, args.last, dry_run=args.dry_run, task=args.task)
     else:
         if not args.shot_code:
             parser.error("shot_code 를 지정하거나 --all 을 사용하세요.")
-        print(f"\n[SKYFALL] Shot 생성: {args.show} > {args.shot_code}")
-        setup_shot(args.show, args.shot_code, args.first, args.last)
+        print(f"\n[SKYFALL] Shot 생성: {args.show} > {args.shot_code} [{args.task}]")
+        setup_shot(args.show, args.shot_code, args.first, args.last, task=args.task)
         print(f"[SKYFALL] ✅ 완료")
